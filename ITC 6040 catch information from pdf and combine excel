@@ -1,0 +1,112 @@
+import pdfplumber
+import csv
+import re
+import pandas as pd
+
+
+# Function to extract course details along with course duration
+def extract_course_details(text):
+    match = re.search(r'([A-Z]{2,4})\s(\d{4})\.\s(.*?)\.\s*\((.*?Hours?)\)', text)
+    if match:
+        department_number, course_number, course_name, course_duration = match.groups()
+        course_code = f"{department_number} {course_number}"
+        course_information = f"{course_name} {course_number}"  # Combine course_name and course_number
+        return department_number, course_code, course_name, course_duration.strip(), course_number, course_information
+    return None, None, None, None, None, None
+
+
+# Function to process the PDF and write the data to a CSV file
+def process_pdf(pdf_path, csv_path):
+    with pdfplumber.open(pdf_path) as pdf:
+        courses = []
+        for page_number, page in enumerate(pdf.pages, 1):
+            print(f"Processing page {page_number}/{len(pdf.pages)}...")
+            text = page.extract_text() or ''
+            for paragraph in text.split('\n'):
+                department_number, course_code, course_name, course_duration, course_number, course_information = extract_course_details(paragraph)
+                if department_number and course_code and course_name and course_duration:
+                    courses.append({
+                        'department_number': department_number,
+                        'course_code': course_code,
+                        'course_number': course_number,
+                        'course_name': course_name,
+                        'course_duration': course_duration,
+                        'course_information': course_information  # Add the new combined column
+                    })
+
+
+    # Write the extracted data to a CSV file
+    with open(csv_path, mode='w', newline='', encoding='utf-8') as csv_file:
+        fieldnames = ['department_number', 'course_code', 'course_number', 'course_name', 'course_duration', 'course_information']
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for course in courses:
+            writer.writerow(course)
+
+
+# Specify the PDF path and CSV path
+pdf_path = 'C:\\Users\\zjh09\\OneDrive\\Desktop\\catalog1\\Northeastern University 2023-2024 Course Descriptions.pdf'
+csv_path = 'C:\\Users\\zjh09\\OneDrive\\Desktop\\catalog1\\all_course_with_department_number_and_duration_and_code_and_course_information.csv'
+
+
+# Process the PDF
+process_pdf(pdf_path, csv_path)
+
+
+# Load the Excel and CSV files
+excel_path = 'C:\\Users\\zjh09\\OneDrive\\Desktop\\catalog1\\FY2023 Active Courses and Student Enrollment_Added.xlsx'
+csv_path = 'C:\\Users\\zjh09\\OneDrive\\Desktop\\catalog1\\all_course_with_department_number_and_duration_and_code_and_course_information.csv'
+
+
+# Read the Excel file
+excel_data = pd.read_excel(excel_path)
+
+
+# Read the CSV file
+csv_data = pd.read_csv(csv_path)
+
+
+# Clean the faculty names and course information in the Excel data
+excel_data['Faculty Name'] = excel_data['Faculty Name'].str.strip()
+excel_data['Course Title & Number'] = excel_data['Course Title & Number'].str.strip()
+
+
+# Ensure all data in the relevant columns are strings
+for column in ['CRN', 'Faculty NUID', 'Course Subject', 'Course Term', 'Course College', 'Course Campus', 'Schedule', 'Instructional Method']:
+    excel_data[column] = excel_data[column].astype(str)
+
+
+# Create a dictionary to map course information to additional details
+course_faculty_map = excel_data.groupby('Course Title & Number').agg({
+    'CRN': lambda x: ' | '.join(sorted(set(x))),  # Use sorted set of strings
+    'Faculty NUID': lambda x: ' | '.join(sorted(set(x))),  # Use sorted set of strings
+    'Faculty Name': lambda x: ' | '.join(sorted(set(x))),
+    'Enrolled Students': 'sum',
+    'Course Subject': lambda x: ' | '.join(sorted(set(x))),
+    'Course Term': lambda x: ' | '.join(sorted(set(x))),
+    'Course College': lambda x: ' | '.join(sorted(set(x))),
+    'Course Campus': lambda x: ' | '.join(sorted(set(x))),
+    'Schedule': lambda x: ' | '.join(sorted(set(x))),
+    'Instructional Method': lambda x: ' | '.join(sorted(set(x)))
+}).to_dict('index')
+
+
+# Map the additional details to the CSV data based on course information
+csv_data['CRN'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('CRN', 'NA'))
+csv_data['faculty NUID'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Faculty NUID', 'NA'))
+csv_data['faculty name'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Faculty Name', 'NA'))
+csv_data['enrolled students'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Enrolled Students', 'NA'))
+csv_data['Course Subject'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Course Subject', 'NA'))
+csv_data['Course Term'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Course Term', 'NA'))
+csv_data['Course College'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Course College', 'NA'))
+csv_data['Course Campus'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Course Campus', 'NA'))
+csv_data['Schedule'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Schedule', 'NA'))
+csv_data['Instructional Method'] = csv_data['course_information'].map(lambda x: course_faculty_map.get(x, {}).get('Instructional Method', 'NA'))
+
+
+# Save the updated CSV file
+output_csv_path = 'C:\\Users\\zjh09\\OneDrive\\Desktop\\catalog1\\cps_course_with_faculty_names_CRN_and_enrolled_students_and_course_term_college_campus_subject_schedule.csv'
+csv_data.to_csv(output_csv_path, index=False)
+
+
+print(f"Updated CSV saved to {output_csv_path}")
